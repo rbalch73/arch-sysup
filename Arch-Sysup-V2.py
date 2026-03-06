@@ -429,38 +429,42 @@ class SysUpApp(tk.Tk):
 
     def _fetch_updates(self):
         if not self.aur_helper:
-            self.after(0,lambda:self._set_status("No AUR helper (yay/paru) found",T["VER_OLD"])); return
-        self.after(0,lambda:self._set_status("Querying packages…",T["ACCENT"]))
-        result=subprocess.run([self.aur_helper,"-Qu"],capture_output=True,text=True,timeout=60)
-        raw=result.stdout.strip()
-        if not raw:
-            self.after(0,lambda:self._set_status("Syncing DBs…",T["ACCENT"]))
-            subprocess.run(["fakeroot","--","pacman","-Sy"],capture_output=True,timeout=120)
-            result=subprocess.run([self.aur_helper,"-Qu"],capture_output=True,text=True,timeout=60)
-            raw=result.stdout.strip()
-        if not raw: self.after(0,self._show_up_to_date); return
-        parsed=[]
-        for line in raw.splitlines():
-            parts=line.split()
-            if len(parts)>=4: parsed.append((parts[0],parts[1],parts[3]))
-        si=subprocess.run(["pacman","-Si"]+[p[0] for p in parsed],capture_output=True,text=True,timeout=30)
-        pkg_repo,cur_repo,cur_pkg={}, "",""
-        for line in si.stdout.splitlines():
-            m=re.match(r'^Repository\s*:\s*(.+)',line)
-            if m: cur_repo=m.group(1).strip()
-            m=re.match(r'^Name\s*:\s*(.+)',line)
-            if m:
-                cur_pkg=m.group(1).strip()
-                if cur_pkg and cur_repo: pkg_repo[cur_pkg]=cur_repo
-        _,sections=parse_pacman_conf()
-        has_chaotic=any(s["name"].lower()=="chaotic-aur" and s["enabled"] for s in sections)
-        updates=[]
-        for pkg,old,new in parsed:
-            repo=pkg_repo.get(pkg) or ("chaotic-aur" if has_chaotic else "aur")
-            updates.append({"pkg":pkg,"repo":repo,"old":old,"new":new,"kernel":is_kernel(pkg)})
-        updates.sort(key=lambda x:(repo_order(x["repo"]),x["pkg"].lower()))
-        self.updates=updates; self.kernel_found=any(u["kernel"] for u in updates)
-        self.after(0,self._show_updates)
+            self.after(0, lambda: self._set_status("No AUR helper (yay/paru) found", T["VER_OLD"]))
+            return
+
+        self.after(0, lambda: self._set_status("Checking sync databases...", T["ACCENT"]))
+
+        # 1. Get official updates using 'checkupdates' (Safe, no root needed, doesn't lock DB)
+        # 2. Get AUR updates using helper (e.g., 'yay -Qua')
+        official_cmd = ["checkupdates"]
+        aur_cmd = [self.aur_helper, "-Qua"]
+
+        try:
+            # Run both checks
+            off_res = subprocess.run(official_cmd, capture_output=True, text=True)
+            aur_res = subprocess.run(aur_cmd, capture_output=True, text=True)
+
+            raw = (off_res.stdout + "\n" + aur_res.stdout).strip()
+
+            if not raw:
+                self.after(0, self._show_up_to_date)
+                return
+
+            parsed = []
+            for line in raw.splitlines():
+                parts = line.split()
+                if len(parts) >= 4: # Format: pkgname oldver -> newver
+                    parsed.append((parts[0], parts[1], parts[3]))
+
+            # ... rest of your existing parsing logic (pacman -Si, etc.) ...
+            # Keep your existing code from 'si = subprocess.run(["pacman", "-Si"]...' onwards
+
+            # (Note: Ensure the rest of your parsing logic handles the combined list)
+            self.after(0, lambda: self._process_parsed_updates(parsed)) # Helper to keep it clean
+
+        except Exception as e:
+            self.after(0, lambda: self._set_status(f"Error: {str(e)}", T["VER_OLD"]))
+
 
     def _show_up_to_date(self):
         self._set_status("System is up to date ✓",T["VER_NEW"])
