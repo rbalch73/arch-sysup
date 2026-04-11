@@ -415,6 +415,8 @@ class SysUpApp(tk.Tk):
         self.count_lbl=self._tw(tk.Label(bot,text="",font=MONO,bg=T["BG"],fg=T["FG_DIM"]),bg="BG",fg="FG_DIM")
         self.count_lbl.pack(side="left")
         br=self._tw(tk.Frame(bot,bg=T["BG"]),bg="BG"); br.pack(side="right")
+        self.sync_btn=_make_btn(br,"💾  Sync DBs",self._run_sync,"BTN_BG","BTN_HOVER")
+        self.sync_btn.pack(side="left",padx=(0,8)); self._tw(self.sync_btn)
         self.refresh_btn=_make_btn(br,"↻  Refresh",self._check_updates,"BTN_BG","BTN_HOVER")
         self.refresh_btn.pack(side="left",padx=(0,8)); self._tw(self.refresh_btn)
         self.update_btn=_make_btn(br,"▶  Update All",self._run_updates,"BTN_GREEN","BTN_GREEN_H","#ffffff",state="disabled")
@@ -428,43 +430,65 @@ class SysUpApp(tk.Tk):
         threading.Thread(target=self._fetch_updates,daemon=True).start()
 
     def _fetch_updates(self):
-        if not self.aur_helper:
-            self.after(0, lambda: self._set_status("No AUR helper (yay/paru) found", T["VER_OLD"]))
+        self.after(0, lambda: self._set_status("Checking for updates...", T["ACCENT"]))
+        parsed = []
+
+        # 1. Get official updates using 'checkupdates'
+        try:
+            off_res = subprocess.run(["checkupdates"], capture_output=True, text=True)
+            if off_res.returncode == 0:
+                for line in off_res.stdout.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 4: # Format: pkgname oldver -> newver
+                        parsed.append((parts[0], parts[1], parts[3]))
+        except Exception:
+            pass
+
+        # 2. Get AUR updates using helper
+        if self.aur_helper:
+            try:
+                aur_res = subprocess.run([self.aur_helper, "-Qua"], capture_output=True, text=True)
+                if aur_res.returncode == 0:
+                    for line in aur_res.stdout.splitlines():
+                        parts = line.split()
+                        if len(parts) >= 4:
+                            parsed.append((parts[0], parts[1], parts[3]))
+            except Exception:
+                pass
+
+        if not parsed:
+            self.after(0, self._show_up_to_date)
             return
 
-        self.after(0, lambda: self._set_status("Checking sync databases...", T["ACCENT"]))
+        self.after(0, lambda: self._process_parsed_updates(parsed))
 
-        # 1. Get official updates using 'checkupdates' (Safe, no root needed, doesn't lock DB)
-        # 2. Get AUR updates using helper (e.g., 'yay -Qua')
-        official_cmd = ["checkupdates"]
-        aur_cmd = [self.aur_helper, "-Qua"]
+    def _process_parsed_updates(self, parsed):
+        self.after(0, lambda: self._set_status(f"Processing {len(parsed)} updates...", T["ACCENT"]))
 
-        try:
-            # Run both checks
-            off_res = subprocess.run(official_cmd, capture_output=True, text=True)
-            aur_res = subprocess.run(aur_cmd, capture_output=True, text=True)
+        updates = []
+        kernel_found = False
 
-            raw = (off_res.stdout + "\n" + aur_res.stdout).strip()
+        for pkg, old, new in parsed:
+            # Determine repo
+            repo = "AUR"
+            si = run_cmd(["pacman", "-Si", pkg])
+            if si:
+                m = re.search(r'^Repository\s*:\s*(.+)', si, re.M)
+                if m: repo = m.group(1).strip()
 
-            if not raw:
-                self.after(0, self._show_up_to_date)
-                return
+            kernel = is_kernel(pkg)
+            if kernel: kernel_found = True
 
-            parsed = []
-            for line in raw.splitlines():
-                parts = line.split()
-                if len(parts) >= 4: # Format: pkgname oldver -> newver
-                    parsed.append((parts[0], parts[1], parts[3]))
+            updates.append({"pkg": pkg, "old": old, "new": new, "repo": repo, "kernel": kernel})
 
-            # ... rest of your existing parsing logic (pacman -Si, etc.) ...
-            # Keep your existing code from 'si = subprocess.run(["pacman", "-Si"]...' onwards
+        updates.sort(key=lambda x: (repo_order(x["repo"]), x["pkg"].lower()))
 
-            # (Note: Ensure the rest of your parsing logic handles the combined list)
-            self.after(0, lambda: self._process_parsed_updates(parsed)) # Helper to keep it clean
+        def _done():
+            self.updates = updates
+            self.kernel_found = kernel_found
+            self._show_updates()
 
-        except Exception as e:
-            self.after(0, lambda: self._set_status(f"Error: {str(e)}", T["VER_OLD"]))
-
+        self.after(0, _done)
 
     def _show_up_to_date(self):
         self._set_status("System is up to date ✓",T["VER_NEW"])
@@ -493,6 +517,34 @@ class SysUpApp(tk.Tk):
         f=tk.Frame(parent,bg=bg); f.pack(side="left")
         if prefix: tk.Label(f,text=prefix,font=MONO,bg=bg,fg=T["FG"]).pack(side="left")
         if suffix: tk.Label(f,text=suffix,font=MONO_B,bg=bg,fg=diff_col).pack(side="left")
+
+    def _run_sync(self):
+        if self._sudo_pw and verify_sudo(self._sudo_pw):
+            pw = self._sudo_pw
+        else:
+            dlg = SudoDialog(self, "Enter your sudo password to sync databases:")
+            self.wait_window(dlg)
+            if dlg.result is None: return
+            if not verify_sudo(dlg.result):
+                dlg2 = SudoDialog(self, "Enter your sudo password to sync databases:")
+                dlg2.show_error("Incorrect password. Please try again.")
+                self.wait_window(dlg2)
+                if not dlg2.result or not verify_sudo(dlg2.result): return
+                pw = dlg2.result
+            else:
+                pw = dlg.result
+        self._sudo_pw = pw
+        self.sync_btn.disable(); self.refresh_btn.disable(); self.update_btn.disable()
+        self._show_log(); self._log_clear()
+        self._log_line("Syncing package databases (pacman -Sy)...", T["ACCENT"])
+        threading.Thread(target=self._do_sync, daemon=True).start()
+
+    def _do_sync(self):
+        self._stream_sudo(["pacman", "-Sy"])
+        self._log_line("✓ Sync complete.", T["VER_NEW"])
+        self.after(0, self.sync_btn.enable)
+        self.after(0, self.refresh_btn.enable)
+        self.after(200, self._check_updates)
 
     def _run_updates(self):
         if not self.updates: return
