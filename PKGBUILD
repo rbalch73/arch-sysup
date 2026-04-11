@@ -1,6 +1,6 @@
 # Maintainer: rbalch73  <rbalch73@github.com>
 pkgname=arch-sysup
-pkgver=2.2.0
+pkgver=2.3.0
 pkgrel=1
 pkgdesc="A graphical system manager and update notifier for Arch Linux"
 arch=('any')
@@ -9,7 +9,7 @@ license=('GPL')
 depends=('python' 'tk' 'pacman-contrib' 'libnotify')
 optdepends=('yay: AUR support' 'paru: AUR support')
 
-# Points to your new v2.1 release
+# Points to your new v2.3 release
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
