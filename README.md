@@ -2,7 +2,7 @@
 
 **A GUI System Update Tool for Arch Linux**
 
-arch-sysup is a lightweight graphical front-end for keeping your Arch Linux system fully up to date. It handles official repository packages via `pacman`, automatically detects whether you have `yay` or `paru` installed, and uses whichever AUR helper is available to update your AUR packages as well — all from a clean, simple GTK interface.
+arch-sysup is a lightweight graphical front-end for keeping your Arch Linux system fully up to date. It handles official repository packages via `pacman`, automatically detects whether you have `yay` or `paru` installed, and uses whichever AUR helper is available to update your AUR packages as well — all from a clean, simple Tkinter interface.
 
 A background notifier service can also alert you when updates are available, so you always know when your system needs attention.
 
@@ -10,9 +10,10 @@ A background notifier service can also alert you when updates are available, so 
 
 ## Features
 
-- Simple GTK3 graphical interface — no terminal required
+- Simple Tkinter graphical interface — no terminal required
 - Updates official Arch packages via `pacman`
 - Automatically detects and uses `yay` or `paru` for AUR package updates
+- Manual "Sync DBs" button to refresh package databases (`pacman -Sy`)
 - Displays live update output in a scrollable log window
 - Background notifier service (`arch-sysup-notifier`) checks for available updates and sends a desktop notification
 - Systemd user service for running the notifier automatically on login
@@ -27,8 +28,7 @@ The following packages are required and will be pulled in automatically when ins
 | Package | Purpose |
 |---|---|
 | `python` | Runtime for the application |
-| `python-gobject` | Python GTK3 bindings (PyGObject) |
-| `gtk3` | GTK3 widget toolkit |
+| `tk` | Tkinter toolkit for the GUI |
 | `pacman` | Core package manager (should already be present) |
 | `libnotify` | Desktop notifications for the notifier service |
 | `pacman-contrib` | Provides the `checkupdates` command used to safely check for available updates |
@@ -97,6 +97,8 @@ systemctl --user disable --now arch-sysup.service
 ## Usage
 
 Launch arch-sysup from your application menu or run `arch-sysup` in a terminal. Click the **Update** button to begin the update process. Live output from `pacman` and your AUR helper will stream into the log window so you can follow along. When the update is complete, a summary will be shown.
+
+If updates are not showing up as expected, use the **Sync DBs** button to refresh your local package databases.
 
 ---
 

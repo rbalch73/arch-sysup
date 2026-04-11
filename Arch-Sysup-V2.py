@@ -460,9 +460,10 @@ class SysUpApp(tk.Tk):
             self.after(0, self._show_up_to_date)
             return
 
-        self.after(0, lambda: self._process_parsed_updates(parsed))
+        # Move metadata processing to the background thread to avoid UI freeze
+        self._process_parsed_updates_bg(parsed)
 
-    def _process_parsed_updates(self, parsed):
+    def _process_parsed_updates_bg(self, parsed):
         self.after(0, lambda: self._set_status(f"Processing {len(parsed)} updates...", T["ACCENT"]))
 
         updates = []
